@@ -1,4 +1,4 @@
-name = "swordigoplus-backend"
+name = "swordigoplus-api"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -10,9 +10,10 @@ compatibility_flags = ["nodejs_compat"]
 
 # ─── D1 Database ──────────────────────────────────────────────────────────────
 [[d1_databases]]
-binding  = "DB"          # how the Worker accesses it: env.DB
+binding       = "DB"          # how the Worker accesses it: env.DB
 database_name = "swordigoplus"
-database_id   = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+# ⚠️  REQUIRED: paste your D1 Database ID here (Cloudflare Dashboard → D1 → your database → copy the ID)
+database_id   = "7b88bec5-a151-483e-8937-3aa5c750aa3f"
 
 # ─── R2 Bucket (reserved for future use) ──────────────────────────────────────
 # [[r2_buckets]]
