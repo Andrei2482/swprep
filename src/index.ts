@@ -36,7 +36,8 @@ function withCors(response: Response, env: Env): Response {
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
-        const path = url.pathname;
+        // Normalize: strip trailing slashes so /auth/register/ and /auth/register both work
+        const path = url.pathname.replace(/\/+$/, '') || '/';
         const method = request.method.toUpperCase();
 
         // ── Preflight (CORS) ──────────────────────────────────────────────────────
@@ -48,28 +49,51 @@ export default {
         let response: Response;
 
         try {
-            if (path === '/auth/register' && method === 'POST') {
-                response = await handleRegister(request, env);
+            switch (true) {
 
-            } else if (path === '/auth/login' && method === 'POST') {
-                response = await handleLogin(request, env);
+                // Debug / health
+                case path === '/ping':
+                    response = new Response(JSON.stringify({ ok: true, pong: true }), {
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                    break;
 
-            } else if (path === '/auth/logout' && method === 'POST') {
-                response = await handleLogout(request, env);
+                case path === '/health':
+                    response = new Response(
+                        JSON.stringify({ ok: true, service: env.APP_NAME }),
+                        { headers: { 'Content-Type': 'application/json' } },
+                    );
+                    break;
 
-            } else if (path === '/auth/refresh' && method === 'POST') {
-                response = await handleRefresh(request, env);
+                // Auth routes
+                case path === '/auth/register':
+                    if (method !== 'POST') { response = err(ErrorCode.METHOD_NOT_ALLOWED, 'Use POST.', 405); break; }
+                    response = await handleRegister(request, env);
+                    break;
 
-            } else if (path === '/auth/me' && method === 'GET') {
-                response = await handleMe(request, env);
+                case path === '/auth/login':
+                    if (method !== 'POST') { response = err(ErrorCode.METHOD_NOT_ALLOWED, 'Use POST.', 405); break; }
+                    response = await handleLogin(request, env);
+                    break;
 
-            } else if (path === '/health' && method === 'GET') {
-                response = new Response(JSON.stringify({ ok: true, service: env.APP_NAME }), {
-                    headers: { 'Content-Type': 'application/json' },
-                });
+                case path === '/auth/logout':
+                    if (method !== 'POST') { response = err(ErrorCode.METHOD_NOT_ALLOWED, 'Use POST.', 405); break; }
+                    response = await handleLogout(request, env);
+                    break;
 
-            } else {
-                response = err(ErrorCode.NOT_FOUND, 'Route not found.', 404);
+                case path === '/auth/refresh':
+                    if (method !== 'POST') { response = err(ErrorCode.METHOD_NOT_ALLOWED, 'Use POST.', 405); break; }
+                    response = await handleRefresh(request, env);
+                    break;
+
+                case path === '/auth/me':
+                    if (method !== 'GET') { response = err(ErrorCode.METHOD_NOT_ALLOWED, 'Use GET.', 405); break; }
+                    response = await handleMe(request, env);
+                    break;
+
+                default:
+                    // Include the attempted path in the error so it's easy to spot mismatches
+                    response = err(ErrorCode.NOT_FOUND, `Route not found: ${method} ${path}`, 404);
             }
         } catch (e) {
             console.error('Unhandled error:', e);

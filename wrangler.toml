@@ -10,30 +10,33 @@ compatibility_flags = ["nodejs_compat"]
 
 # ─── D1 Database ──────────────────────────────────────────────────────────────
 [[d1_databases]]
-binding       = "DB"          # how the Worker accesses it: env.DB
+binding       = "DB"
 database_name = "swordigoplus"
-# ⚠️  REQUIRED: paste your D1 Database ID here (Cloudflare Dashboard → D1 → your database → copy the ID)
 database_id   = "7b88bec5-a151-483e-8937-3aa5c750aa3f"
+
+# ─── Native Rate Limiters (Cloudflare Workers Rate Limiting API) ───────────────
+# These use Cloudflare's built-in rate limiting — zero D1 queries, ultra-fast.
+# namespace_id can be any unique integer you choose per limiter.
+[[unsafe.bindings]]
+type         = "ratelimit"
+name         = "LOGIN_LIMITER"
+namespace_id = "1001"
+simple       = { limit = 5, period = 60 }   # 5 req / 60 sec per key
+
+[[unsafe.bindings]]
+type         = "ratelimit"
+name         = "REGISTER_LIMITER"
+namespace_id = "1002"
+simple       = { limit = 3, period = 60 }   # 3 req / 60 sec per key
 
 # ─── R2 Bucket (reserved for future use) ──────────────────────────────────────
 # [[r2_buckets]]
 # binding = "STORAGE"
 # bucket_name = "swordigoplus-assets"
 
-# ─── Secrets (set via Cloudflare Dashboard → Workers → Settings → Variables) ─
-# JWT_SECRET          — a long random string (64+ chars) used to sign nothing
-#                       here (we use opaque tokens), but kept for future use.
-# COOKIE_SECRET       — used to sign the refresh-token cookie (optional)
-# All other config is in wrangler.toml or environment variables below.
-
 [vars]
-# Public (non-secret) config — safe to commit.
 APP_NAME          = "SwordigoPlus"
-CORS_ORIGIN       = "*"                 # restrict to your frontend domain in prod
-ACCESS_TOKEN_TTL  = "900"              # 15 minutes in seconds
-REFRESH_TOKEN_TTL = "2592000"          # 30 days in seconds
-RATE_LIMIT_LOGIN_MAX    = "5"
-RATE_LIMIT_LOGIN_WINDOW = "900"        # 15 minute window (seconds)
-RATE_LIMIT_REGISTER_MAX    = "3"
-RATE_LIMIT_REGISTER_WINDOW = "3600"    # 1 hour window (seconds)
+CORS_ORIGIN       = "*"
+ACCESS_TOKEN_TTL  = "900"
+REFRESH_TOKEN_TTL = "2592000"
 PBKDF2_ITERATIONS = "100000"

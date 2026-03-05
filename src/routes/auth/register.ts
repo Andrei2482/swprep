@@ -1,27 +1,22 @@
 // src/routes/auth/register.ts
 // POST /auth/register
-// Creates a new user account and returns a session token pair.
 
 import type { Env } from '../../types.ts';
 import { parseJsonBody, validateEmail, validatePassword, validateUsername } from '../../lib/validation.ts';
 import { generateId, generateSalt, generateToken, hashPassword, hashToken } from '../../lib/crypto.ts';
 import { findUserByEmail, findUserByUsername, createUser } from '../../db/users.ts';
 import { createSession } from '../../db/sessions.ts';
-import { checkRateLimit } from '../../lib/ratelimit.ts';
 import { ok, err } from '../../lib/response.ts';
 import { ErrorCode } from '../../lib/errors.ts';
 import type { TokenPair } from '../../types.ts';
 
 export async function handleRegister(request: Request, env: Env): Promise<Response> {
-    // ── Rate limit: 3 registrations per IP per hour ──────────────────────────────
+    // ── Native rate limit: 3 registrations per IP per minute ─────────────────────
     const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-    const rateLimitRes = await checkRateLimit({
-        key: `register:${ip}`,
-        max: Number(env.RATE_LIMIT_REGISTER_MAX),
-        windowSeconds: Number(env.RATE_LIMIT_REGISTER_WINDOW),
-        db: env.DB,
-    });
-    if (rateLimitRes) return rateLimitRes;
+    const rl = await env.REGISTER_LIMITER.limit({ key: ip });
+    if (!rl.success) {
+        return err(ErrorCode.RATE_LIMITED, 'Too many registration attempts. Please wait before trying again.', 429);
+    }
 
     // ── Parse body ────────────────────────────────────────────────────────────────
     const body = await parseJsonBody(request);
@@ -105,7 +100,6 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     };
 
     const response = ok({ tokens: tokenPair, user: { id: userId, username: normalizedUsername } }, 201);
-    // Set refresh token as an HttpOnly cookie (more secure than exposing in body)
     response.headers.append(
         'Set-Cookie',
         `refresh_token=${refreshToken}; HttpOnly; Secure; SameSite=Strict; Max-Age=${refreshTtl}; Path=/auth/refresh`,

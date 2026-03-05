@@ -1,27 +1,22 @@
 // src/routes/auth/login.ts
 // POST /auth/login
-// Authenticates a user with email + password, returns a session token pair.
 
 import type { Env } from '../../types.ts';
 import { parseJsonBody } from '../../lib/validation.ts';
 import { generateId, generateToken, hashToken, verifyPassword } from '../../lib/crypto.ts';
 import { findUserByEmail } from '../../db/users.ts';
 import { createSession } from '../../db/sessions.ts';
-import { checkRateLimit } from '../../lib/ratelimit.ts';
 import { ok, err } from '../../lib/response.ts';
 import { ErrorCode } from '../../lib/errors.ts';
 import type { TokenPair } from '../../types.ts';
 
 export async function handleLogin(request: Request, env: Env): Promise<Response> {
-    // ── Rate limit: 5 attempts per 15 minutes per IP ──────────────────────────────
+    // ── Native rate limit: 5 attempts per IP per minute ───────────────────────────
     const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-    const rateLimitRes = await checkRateLimit({
-        key: `login:${ip}`,
-        max: Number(env.RATE_LIMIT_LOGIN_MAX),
-        windowSeconds: Number(env.RATE_LIMIT_LOGIN_WINDOW),
-        db: env.DB,
-    });
-    if (rateLimitRes) return rateLimitRes;
+    const rl = await env.LOGIN_LIMITER.limit({ key: ip });
+    if (!rl.success) {
+        return err(ErrorCode.RATE_LIMITED, 'Too many login attempts. Please wait before trying again.', 429);
+    }
 
     // ── Parse body ────────────────────────────────────────────────────────────────
     const body = await parseJsonBody(request);
@@ -41,8 +36,7 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
     // ── Look up user ──────────────────────────────────────────────────────────────
     const user = await findUserByEmail(env.DB, email);
 
-    // Always hash even if user not found — prevents timing-based user enumeration.
-    // We use a dummy salt/hash so the PBKDF2 cost is always paid.
+    // Always run PBKDF2 even if user not found — prevents timing-based user enumeration.
     const iterations = Number(env.PBKDF2_ITERATIONS);
     const DUMMY_SALT = 'AAAAAAAAAAAAAAAA';
     const DUMMY_HASH = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
