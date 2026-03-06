@@ -8,25 +8,23 @@ import { findUserByEmail, findUserByUsername, createUser } from '../../db/users.
 import { createSession } from '../../db/sessions.ts';
 import { ok, err } from '../../lib/response.ts';
 import { ErrorCode } from '../../lib/errors.ts';
+import { makeRefreshCookie } from '../../lib/cookie.ts';
 import type { TokenPair } from '../../types.ts';
 
 export async function handleRegister(request: Request, env: Env): Promise<Response> {
-    // ── Native rate limit: 3 registrations per IP per minute ─────────────────────
+    // ── Rate limit ────────────────────────────────────────────────────────────────
     const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
     const rl = await env.REGISTER_LIMITER.limit({ key: ip });
     if (!rl.success) {
         return err(ErrorCode.RATE_LIMITED, 'Too many registration attempts. Please wait before trying again.', 429);
     }
 
-    // ── Parse body ────────────────────────────────────────────────────────────────
+    // ── Parse & validate ──────────────────────────────────────────────────────────
     const body = await parseJsonBody(request);
-    if (!body) {
-        return err(ErrorCode.VALIDATION_ERROR, 'Request body must be valid JSON.', 400);
-    }
+    if (!body) return err(ErrorCode.VALIDATION_ERROR, 'Request body must be valid JSON.', 400);
 
     const { email, username, password, display_name } = body;
 
-    // ── Validate fields ───────────────────────────────────────────────────────────
     const emailCheck = validateEmail(email);
     if (!emailCheck.valid) return err(ErrorCode.INVALID_EMAIL, emailCheck.message!, 400);
 
@@ -39,12 +37,11 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     const normalizedEmail = (email as string).toLowerCase().trim();
     const normalizedUsername = (username as string).toLowerCase().trim();
 
-    // ── Check uniqueness ──────────────────────────────────────────────────────────
+    // ── Uniqueness check ──────────────────────────────────────────────────────────
     const [existingEmail, existingUsername] = await Promise.all([
         findUserByEmail(env.DB, normalizedEmail),
         findUserByUsername(env.DB, normalizedUsername),
     ]);
-
     if (existingEmail) return err(ErrorCode.EMAIL_TAKEN, 'This email is already registered.', 409);
     if (existingUsername) return err(ErrorCode.USERNAME_TAKEN, 'This username is already taken.', 409);
 
@@ -53,56 +50,40 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     const iterations = Number(env.PBKDF2_ITERATIONS);
     const passwordHash = await hashPassword(password as string, salt, iterations);
 
-    // ── Create user ───────────────────────────────────────────────────────────────
+    // ── Create user + session ─────────────────────────────────────────────────────
     const userId = generateId();
     const now = Math.floor(Date.now() / 1000);
 
     await createUser(env.DB, {
-        id: userId,
-        email: normalizedEmail,
-        username: normalizedUsername,
+        id: userId, email: normalizedEmail, username: normalizedUsername,
         display_name: typeof display_name === 'string' ? display_name.trim() : null,
-        password_hash: passwordHash,
-        salt,
-        now,
+        password_hash: passwordHash, salt, now,
     });
 
-    // ── Create session ────────────────────────────────────────────────────────────
     const accessToken = generateToken();
     const refreshToken = generateToken();
-
-    const [accessHash, refreshHash] = await Promise.all([
-        hashToken(accessToken),
-        hashToken(refreshToken),
-    ]);
+    const [accessHash, refreshHash] = await Promise.all([hashToken(accessToken), hashToken(refreshToken)]);
 
     const accessTtl = Number(env.ACCESS_TOKEN_TTL);
     const refreshTtl = Number(env.REFRESH_TOKEN_TTL);
 
     await createSession(env.DB, {
-        id: generateId(),
-        user_id: userId,
-        access_token_hash: accessHash,
-        refresh_token_hash: refreshHash,
+        id: generateId(), user_id: userId,
+        access_token_hash: accessHash, refresh_token_hash: refreshHash,
         client_type: 'web',
         ip: request.headers.get('CF-Connecting-IP'),
         user_agent: request.headers.get('User-Agent'),
-        now,
-        access_expires_at: now + accessTtl,
-        refresh_expires_at: now + refreshTtl,
+        now, access_expires_at: now + accessTtl, refresh_expires_at: now + refreshTtl,
     });
 
     // ── Respond ───────────────────────────────────────────────────────────────────
-    const tokenPair: TokenPair = {
-        access_token: accessToken,
-        token_type: 'Bearer',
-        expires_in: accessTtl,
-    };
+    const tokenPair: TokenPair = { access_token: accessToken, token_type: 'Bearer', expires_in: accessTtl };
 
-    const response = ok({ tokens: tokenPair, user: { id: userId, username: normalizedUsername } }, 201);
-    response.headers.append(
-        'Set-Cookie',
-        `refresh_token=${refreshToken}; HttpOnly; Secure; SameSite=Strict; Max-Age=${refreshTtl}; Path=/auth/refresh`,
-    );
+    const response = ok({
+        tokens: tokenPair,
+        user: { id: userId, username: normalizedUsername, email: normalizedEmail, display_name: null },
+    }, 201);
+
+    response.headers.append('Set-Cookie', makeRefreshCookie(refreshToken, refreshTtl, env.COOKIE_DOMAIN));
     return response;
 }

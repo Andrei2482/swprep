@@ -1,28 +1,25 @@
 // src/types.ts
-// Central type definitions for the SwordigoPlus backend Worker.
 
-// Cloudflare native Rate Limiter binding type
 export interface RateLimiter {
     limit(options: { key: string }): Promise<{ success: boolean }>;
 }
 
 export interface Env {
-    // D1 Database binding
     DB: D1Database;
-
-    // Native Cloudflare Rate Limiters (defined in wrangler.toml [[unsafe.bindings]])
     LOGIN_LIMITER: RateLimiter;
     REGISTER_LIMITER: RateLimiter;
 
-    // Config vars (from wrangler.toml [vars])
     APP_NAME: string;
-    CORS_ORIGIN: string;
-    ACCESS_TOKEN_TTL: string;   // seconds as string
-    REFRESH_TOKEN_TTL: string;  // seconds as string
+    /** Comma-separated allowed origins e.g. "https://app.swordigoplus.cf,https://copilot.swordigoplus.cf" */
+    CORS_ORIGINS: string;
+    /** Leading-dot wildcard cookie domain e.g. ".swordigoplus.cf" */
+    COOKIE_DOMAIN: string;
+    ACCESS_TOKEN_TTL: string;
+    REFRESH_TOKEN_TTL: string;
     PBKDF2_ITERATIONS: string;
 }
 
-// ─── Database row types ────────────────────────────────────────────────────────
+// ─── DB row types ─────────────────────────────────────────────────────────────
 
 export interface UserRow {
     id: string;
@@ -52,11 +49,12 @@ export interface SessionRow {
     is_revoked: number;
 }
 
-// ─── API response shapes ──────────────────────────────────────────────────────
+// ─── Response shapes ──────────────────────────────────────────────────────────
 
 export interface PublicUser {
     id: string;
     username: string;
+    email: string;           // needed by Copilot Topbar
     display_name: string | null;
     role: string;
     created_at: number;

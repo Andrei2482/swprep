@@ -1,7 +1,4 @@
 // src/index.ts
-// Main Cloudflare Worker entry point.
-// Routes requests to the appropriate handler via URL pattern matching.
-
 import type { Env } from './types.ts';
 import { handleRegister } from './routes/auth/register.ts';
 import { handleLogin } from './routes/auth/login.ts';
@@ -11,21 +8,31 @@ import { handleMe } from './routes/auth/me.ts';
 import { err } from './lib/response.ts';
 import { ErrorCode } from './lib/errors.ts';
 
-// ─── CORS helper ──────────────────────────────────────────────────────────────
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+// With credentials:include, Access-Control-Allow-Origin MUST be the exact
+// requesting origin (not '*'). We maintain an explicit allowlist.
 
-function corsHeaders(env: Env): HeadersInit {
+function getAllowedOrigin(request: Request, env: Env): string | null {
+    const origin = request.headers.get('Origin') ?? '';
+    const allowed = env.CORS_ORIGINS.split(',').map((o) => o.trim());
+    return allowed.includes(origin) ? origin : null;
+}
+
+function corsHeaders(allowedOrigin: string): HeadersInit {
     return {
-        'Access-Control-Allow-Origin': env.CORS_ORIGIN,
+        'Access-Control-Allow-Origin': allowedOrigin,
         'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Credentials': 'true',       // required for cookies
         'Access-Control-Max-Age': '86400',
+        'Vary': 'Origin',      // required when origin varies
     };
 }
 
-function withCors(response: Response, env: Env): Response {
+function withCors(response: Response, allowedOrigin: string | null): Response {
+    if (!allowedOrigin) return response; // non-browser / unknown origin — strip CORS
     const headers = new Headers(response.headers);
-    for (const [k, v] of Object.entries(corsHeaders(env))) {
+    for (const [k, v] of Object.entries(corsHeaders(allowedOrigin))) {
         headers.set(k, v);
     }
     return new Response(response.body, { status: response.status, headers });
@@ -36,22 +43,22 @@ function withCors(response: Response, env: Env): Response {
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
-        // Normalize: strip trailing slashes so /auth/register/ and /auth/register both work
         const path = url.pathname.replace(/\/+$/, '') || '/';
         const method = request.method.toUpperCase();
 
-        // ── Preflight (CORS) ──────────────────────────────────────────────────────
+        const allowedOrigin = getAllowedOrigin(request, env);
+
+        // Preflight
         if (method === 'OPTIONS') {
-            return new Response(null, { status: 204, headers: corsHeaders(env) });
+            if (!allowedOrigin) return new Response(null, { status: 204 });
+            return new Response(null, { status: 204, headers: corsHeaders(allowedOrigin) });
         }
 
-        // ── Route dispatch ────────────────────────────────────────────────────────
         let response: Response;
 
         try {
             switch (true) {
 
-                // Debug / health
                 case path === '/ping':
                     response = new Response(JSON.stringify({ ok: true, pong: true }), {
                         headers: { 'Content-Type': 'application/json' },
@@ -65,7 +72,6 @@ export default {
                     );
                     break;
 
-                // Auth routes
                 case path === '/auth/register':
                     if (method !== 'POST') { response = err(ErrorCode.METHOD_NOT_ALLOWED, 'Use POST.', 405); break; }
                     response = await handleRegister(request, env);
@@ -92,7 +98,6 @@ export default {
                     break;
 
                 default:
-                    // Include the attempted path in the error so it's easy to spot mismatches
                     response = err(ErrorCode.NOT_FOUND, `Route not found: ${method} ${path}`, 404);
             }
         } catch (e) {
@@ -100,6 +105,6 @@ export default {
             response = err(ErrorCode.INTERNAL_ERROR, 'An internal server error occurred.', 500);
         }
 
-        return withCors(response, env);
+        return withCors(response, allowedOrigin);
     },
 } satisfies ExportedHandler<Env>;
