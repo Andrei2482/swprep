@@ -24,15 +24,37 @@ const SYSTEM_PROMPT =
 
 export async function handleDiscordCopilot(request: Request, env: Env): Promise<Response> {
   // ── 1. HMAC verification ──────────────────────────────────────────────────
+  // ⚠️ DEBUG — remove before production
   const secret = env.DISCORD_BOT_HMAC_SECRET;
   if (!secret) {
-    console.error('[discord/copilot] DISCORD_BOT_HMAC_SECRET is not configured');
-    return err(ErrorCode.INTERNAL_ERROR, 'Gateway not configured.', 503);
+    return new Response(JSON.stringify({
+      ok: false,
+      debug: {
+        issue: 'DISCORD_BOT_HMAC_SECRET is missing or undefined',
+        hint: 'Set it as a Worker Secret in: Cloudflare Dashboard → Workers & Pages → swordigoplus-api → Settings → Variables → Add Secret',
+        env_keys_present: Object.keys(env as unknown as Record<string, unknown>).join(', '),
+      }
+    }), { status: 503, headers: { 'Content-Type': 'application/json' } });
   }
 
   const verify = await verifyHmacRequest(request, secret);
   if (!verify.ok) {
-    return err(ErrorCode.UNAUTHORIZED, 'Request authentication failed.', 401);
+    return new Response(JSON.stringify({
+      ok: false,
+      debug: {
+        issue: 'HMAC verification failed',
+        reason: verify.reason,
+        headers_received: {
+          'x-swp-timestamp': request.headers.get('x-swp-timestamp'),
+          'x-swp-nonce':     request.headers.get('x-swp-nonce'),
+          'x-swp-signature': request.headers.get('x-swp-signature') ? '(present)' : '(missing)',
+          'content-length':  request.headers.get('content-length'),
+          'origin':          request.headers.get('origin'),
+          'content-type':    request.headers.get('content-type'),
+        },
+        server_time_unix: Math.floor(Date.now() / 1000),
+      }
+    }), { status: 401, headers: { 'Content-Type': 'application/json' } });
   }
 
   // ── 2. Parse & validate body ──────────────────────────────────────────────
