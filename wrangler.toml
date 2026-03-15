@@ -44,6 +44,7 @@ REDIRECT_ORIGINS  = "https://copilot.swordigoplus.cf"
 ACCESS_TOKEN_TTL  = "900"
 REFRESH_TOKEN_TTL = "2592000"
 PBKDF2_ITERATIONS = "100000"
+DISCORD_BOT_HMAC_SECRET = "7fd25514a47ab225189dc6f872cc2a8827789ea2b7117d16069a18b29e3d063b"
 
 # ─── Secrets (never put in [vars] — set via Cloudflare Dashboard or CLI) ──────
 # DISCORD_BOT_HMAC_SECRET  — shared secret between this Worker and the Discord bot
