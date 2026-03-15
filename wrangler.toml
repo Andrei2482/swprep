@@ -9,6 +9,13 @@ binding       = "DB"
 database_name = "swordigoplus"
 database_id   = "7b88bec5-a151-483e-8937-3aa5c750aa3f"
 
+# ─── Workers AI ───────────────────────────────────────────────────────────────
+# Used by /discord/copilot — AutoRAG search + LLM generation.
+# The AI Search index "swordigoplus-copilot" must be created in the
+# Cloudflare Dashboard → AI → AutoRAG before the endpoint becomes functional.
+[ai]
+binding = "AI"
+
 # ─── Native Rate Limiters ─────────────────────────────────────────────────────
 [[unsafe.bindings]]
 type         = "ratelimit"
@@ -22,16 +29,26 @@ name         = "REGISTER_LIMITER"
 namespace_id = "1002"
 simple       = { limit = 3, period = 60 }
 
+# Discord bot Copilot endpoint — 20 queries / 60 sec per source IP
+[[unsafe.bindings]]
+type         = "ratelimit"
+name         = "DISCORD_COPILOT_LIMITER"
+namespace_id = "1003"
+simple       = { limit = 20, period = 60 }
+
 [vars]
 APP_NAME          = "SwordigoPlus"
-# Comma-separated list of allowed CORS origins.
-# Add new subdomains here as they come online.
 CORS_ORIGINS      = "https://app.swordigoplus.cf,https://copilot.swordigoplus.cf"
-# Cookie domain — leading dot = sent to ALL subdomains of swordigoplus.cf
 COOKIE_DOMAIN     = ".swordigoplus.cf"
-# Comma-separated whitelist of valid post-login redirect destinations.
-# The frontend validates the ?redirect= param against this list to block open-redirect attacks.
 REDIRECT_ORIGINS  = "https://copilot.swordigoplus.cf"
 ACCESS_TOKEN_TTL  = "900"
 REFRESH_TOKEN_TTL = "2592000"
 PBKDF2_ITERATIONS = "100000"
+
+# ─── Secrets (never put in [vars] — set via Cloudflare Dashboard or CLI) ──────
+# DISCORD_BOT_HMAC_SECRET  — shared secret between this Worker and the Discord bot
+#
+# To set it in the Cloudflare Dashboard:
+#   Workers & Pages → swordigoplus-api → Settings → Variables → Add Secret
+#   Variable name: DISCORD_BOT_HMAC_SECRET
+#   Value: a cryptographically random 64-character hex string
